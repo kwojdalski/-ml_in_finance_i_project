@@ -54,17 +54,27 @@ Make sure you have Python and pip installed on your machine.
 
 To run the project, execute the main script or the appropriate Jupyter notebook:
 
+Example: 
 ```python
-python main.py
+python src/ml_qrt_project_final.py
 ```
 
 or
 
 Launch Jupyter Notebook:
+
+Example:
 ```python
 jupyter notebook
 Open notebook.ipynb and run the cells.
 Provide specific instructions on how to input data and interpret results if applicable.
+```
+
+Each file with model has its corresponding notebook. In order to convert .py to .ipynb, use the following command:
+
+Example:
+```python
+jupytext --to ipynb src/ml_qrt_project_final.py --output notebooks/ml_qrt_project_final.ipynb
 ```
 
 ## Data
