@@ -15,20 +15,27 @@
 # %% [markdown]
 # predicting the return of a stock in the US market using historical data over a recent period of 20 days
 #
-# The one-day return of a stock :
+# Agenda:
+# 1. **Data Preprocessing**
+#    - Loading training and test datasets
+#    - Handling missing values
+#    - Feature engineering (moving averages)
+#    - Target encoding
 #
-# $R^t$ =  $\frac{P_j^t}{P_j^{t-1}}$ - 1
+# 2. **Model Implementation and Evaluation**
+#    - Decision Tree Classifier
+#       - Baseline model (accuracy: 0.510)
+#       - Tuned model with hyperparameter optimization (accuracy: 0.5325)
+#    - XGBoost Classifier
+#       - Baseline model (accuracy: 0.53)
+#       - Tuned model with hyperparameter optimization (accuracy: 0.8775)
 #
-# the goal is to find a model which beat the benchmark model's accuracy_score = 0.5131
+# 3. **Model Comparison**
+#    - Cross-validation results
+#    - Feature importance analysis
+#    - ROC curves and confusion matrices
 #
-# Baseline Model's were only run on the train_set 
-#
-# The  Model Report score (Accuracy) with preformed model (on the test_set for tunned models): 
-#     Decison tree baseline model : 0.510 (only done on the train_set)
-#     Decison tree tunned model : 0.5325 (Cross validation mean accuracy 0.52)
-#     Xgboost baseline model : 0.53  (Cross validation mean accuracy 0.53 ) (only done on the train_set)
-#     Xgboost tunned model : 0.8775  (Cross validation mean accuracy 0.54) 
-
+# The goal is to beat the benchmark accuracy of 0.5131 using various modeling approaches and optimization techniques.
 # %% [markdown]
 # ## Data description
 #
@@ -51,12 +58,14 @@
 # and the binary target:
 # * **RET**: the sign of the residual stock return at time $t$
 #
-# The solution files submitted by participants shall follow this output dataset format (i.e contain only two columns, ID and RET, where the ID values correspond to the input test data). 
+# The one-day return of a stock :
+# $R^t$ =  $\frac{P_j^t}{P_j^{t-1}}$ - 1
+#
+# The solution files submitted by participants shall follow this output dataset format (i.e contain only two columns, ID and RET, where the ID values correspond to the input test data).
 # An example submission file containing random predictions is provided.
 #
 # **418595 observations (i.e. lines) are available for the training datasets while 198429 observations are used for the test datasets.**
 #
-
 
 
 # %% [markdown]
@@ -65,29 +74,23 @@
 
 # %%
 import logging as log
+from itertools import compress
 
 import numpy as np
-import pandas as pd
-import xgboost as xgb
 from sklearn import tree
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.preprocessing import LabelEncoder
-from xgboost import XGBClassifier
 
-from src.utils import feature_importance, model_fit
+from src.utils import feature_importance, load_and_preprocess_data, model_fit
 
 # %%
 # Configure logging to stdout
 log.basicConfig(
     level=log.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        log.StreamHandler()
-    ]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[log.StreamHandler()],
 )
-target = 'RET'
-IDcol = ['ID','STOCK', 'DATE','INDUSTRY','INDUSTRY_GROUP','SECTOR','SUB_INDUSTRY']
+target = "RET"
 kfold = 2
 
 
@@ -95,47 +98,13 @@ kfold = 2
 # ## Importing data
 
 # %%
-x_train = pd.read_csv("./data/x_train.csv")
-y_train = pd.read_csv("./data/y_train.csv")
-train_df = pd.concat([x_train, y_train], axis=1)
-test_df = pd.read_csv("./data/x_test.csv")
+train_df, test_df = load_and_preprocess_data()
 
-
-
-# %%
-train_df = train_df.dropna()
-train_df = train_df.drop(IDcol, axis = 1) 
-
-# %%
-test_df = test_df.dropna()
-test_df = test_df.drop(IDcol, axis = 1) 
-
-# %%
+# Display sample of training data
 train_df.head(2)
 
-# %% [markdown]
-# **Creat new parameters to increase the accurancy:**
-# - mean return of last **20** days
-# - the moving average of last **5** days
-# - the moving average of last **10** days
-# - the moving average of last **15** days
-# - transform RET from booleaninto a binary variable
-
 # %%
-train_df['Mean'] = train_df[[f'RET_{i}' for i in range(1, 21)]].mean(axis=1)
-test_df['Mean'] = test_df[[f'RET_{i}' for i in range(1, 21)]].mean(axis=1)
-train_df['MA5'] = train_df[[f'RET_{i}' for i in range(1, 7)]].mean(axis=1)
-train_df['MA10'] = train_df[[f'RET_{i}' for i in range(1, 11)]].mean(axis=1)
-train_df['MA15'] = train_df[[f'RET_{i}' for i in range(1, 16)]].mean(axis=1)
-test_df['MA5'] = test_df[[f'RET_{i}' for i in range(1, 7)]].mean(axis=1)
-test_df['MA10'] = test_df[[f'RET_{i}' for i in range(1, 11)]].mean(axis=1)
-test_df['MA15'] = test_df[[f'RET_{i}' for i in range(1, 16)]].mean(axis=1)
-sign_of_return = LabelEncoder()
-train_df['RET'] = sign_of_return.fit_transform(train_df['RET'])
-
-
-# %%
-#Features Default selection
+# Features Default selection
 features = train_df.columns.drop(target).tolist()
 
 # %% [markdown]
@@ -143,7 +112,12 @@ features = train_df.columns.drop(target).tolist()
 
 # %% [markdown]
 # Train and test set splitting
-x_train, x_test, y_train, y_test = train_test_split(train_df.loc[:, train_df.columns != 'RET'], train_df.RET, test_size=0.25, random_state =0)
+x_train, x_test, y_train, y_test = train_test_split(
+    train_df.loc[:, train_df.columns != "RET"],
+    train_df["RET"],
+    test_size=0.25,
+    random_state=0,
+)
 
 # %%
 # Decison tree baseline model
@@ -151,18 +125,18 @@ model = tree.DecisionTreeClassifier()
 
 # %%
 # Fitting Decison tree baseline model
-model_fit(model,x_train, y_train, features, performCV=False)
+model_fit(model, x_train, y_train, features, performCV=False)
 log.info("Accuracy on test set :{:.3f} ".format(model.score(x_test, y_test)))
 
 # %%
-#Tunning Decision tree model  With Gridsearch
-log.info('Decision tree with Classifier')
-params={'max_depth': np.arange(2, 7),'criterion':['gini','entropy']}
+# Tunning Decision tree model  With Gridsearch
+log.info("Decision tree with Classifier")
+params = {"max_depth": np.arange(2, 7), "criterion": ["gini", "entropy"]}
 tree_estimator = tree.DecisionTreeClassifier()
 
-grid_tree = GridSearchCV(tree_estimator, params, cv=kfold, scoring="accuracy",
-                         n_jobs=1,
-                         verbose=False)
+grid_tree = GridSearchCV(
+    tree_estimator, params, cv=kfold, scoring="accuracy", n_jobs=1, verbose=False
+)
 
 grid_tree.fit(x_train, y_train)
 best_est = grid_tree.best_estimator_
@@ -172,9 +146,9 @@ log.info(grid_tree.best_score_)
 
 # summarize results
 log.info("Best: %f using %s" % (grid_tree.best_score_, grid_tree.best_params_))
-means = grid_tree.cv_results_['mean_test_score']
-stds = grid_tree.cv_results_['std_test_score']
-params = grid_tree.cv_results_['params']
+means = grid_tree.cv_results_["mean_test_score"]
+stds = grid_tree.cv_results_["std_test_score"]
+params = grid_tree.cv_results_["params"]
 for mean, stdev, param in zip(means, stds, params):
     log.info("%f (%f) with: %r" % (mean, stdev, param))
 
@@ -183,52 +157,74 @@ for mean, stdev, param in zip(means, stds, params):
 # **the best Hyperparameters for our Decision tree model using gridsearch Cv  is {'criterion': 'gini', 'max_depth': 6}**
 
 # %%
-model = tree.DecisionTreeClassifier(max_depth = 6,criterion='gini')
-model_fit(model, x_train, y_train,features,printFeatureImportance=True)
+model = tree.DecisionTreeClassifier(max_depth=6, criterion="gini")
+model_fit(model, x_train, y_train, features, printFeatureImportance=True)
+
+dt = tree.DecisionTreeClassifier()
+dt.fit(x_train, y_train)
+
+# plot tree
+# plt.figure(figsize=(20, 16))  # set plot size (denoted in inches)
+# tree.plot_tree(model, feature_names=features, fontsize=10)
 
 # %% [markdown]
-# ## features selection based on Feature importances 
+# ## features selection based on Feature importances
 
 # %%
-feature_importance(model, selection=True)
+feature_importance(model, features)
 
 # %% [markdown]
 # **we removed features with less than 2% of feature importance**
+n_features = list(compress(features, model.feature_importances_ >= 0.02))
 
 # %%
-n_features = ['Mean', 'RET_1', 'RET_10','RET_15','RET_16', 'RET_17','RET_18', 'RET_19', 'RET_2', 
-              'RET_20', 'RET_4', 'RET_7', 'RET_8','VOLUME_1', 'VOLUME_11', 'VOLUME_18', 'VOLUME_4']
-#New sets 
-x_train_sl, x_test_sl, y_train_sl, y_test_sl = train_test_split(train_df.loc[:, train_df[n_features].columns], train_df.RET, random_state =0)
+# New sets with only the selected features
+x_train_sl, x_test_sl, y_train_sl, y_test_sl = train_test_split(
+    train_df.loc[:, train_df[n_features].columns], train_df["RET"], random_state=0
+)
 
 # %%
-model = tree.DecisionTreeClassifier(max_depth = 6,criterion='gini')
+model_selected = tree.DecisionTreeClassifier(max_depth=6, criterion="gini")
 
 # %%
 log.info("Fitting with train set")
-model_fit(model,x_train_sl, y_train_sl,n_features,printFeatureImportance=True)
+model_fit(
+    model_selected, x_train_sl, y_train_sl, n_features, printFeatureImportance=True
+)
 
 # %%
 log.info("Fitting with test set")
-model_fit(model,x_test_sl, y_test_sl,n_features,printFeatureImportance=False,roc= True)
+model_fit(
+    model_selected,
+    x_test_sl,
+    y_test_sl,
+    n_features,
+    printFeatureImportance=False,
+    roc=True,
+)
 
 # %%
-#Prediction on the test dataframe
+# Prediction on the test dataframe
 test_df = test_df[n_features]
-prediction = model.predict(test_df)
+prediction = model_selected.predict(test_df)
 log.info(prediction)
 
 # %% [markdown]
 # ## ML GradientBoostingClassifier
 
 # %%
-#Train and test set splitting
-x_train, x_test, y_train, y_test = train_test_split(train_df.loc[:, train_df.columns != 'RET'], train_df.RET, test_size=0.25, random_state=0)
+# Train and test set splitting
+x_train, x_test, y_train, y_test = train_test_split(
+    train_df.loc[:, train_df.columns != "RET"],
+    train_df["RET"],
+    test_size=0.25,
+    random_state=0,
+)
 
 # %%
-#Baseline Gradient boosting model 
+# Baseline Gradient boosting model
 base_gbm = GradientBoostingClassifier(random_state=10)
-model_fit(base_gbm,x_train, y_train,features,roc=True,printFeatureImportance=True)
+model_fit(base_gbm, x_train, y_train, features, roc=True, printFeatureImportance=True)
 
 # %% [markdown]
 # **Tunning parameters with Gridsearch**
@@ -240,59 +236,57 @@ model_fit(base_gbm,x_train, y_train,features,roc=True,printFeatureImportance=Tru
 #     max_features = 'sqrt' : Its a general thumb-rule to start with square root.
 #     subsample = 0.8 : commonly used used start value
 #
-# **we will choose all the features 
+# **we will choose all the features
 
 # %%
-log.info('tuning n_estimators')
-params1 = {'n_estimators':range(30,81,10)}
+log.info("tuning n_estimators")
+params1 = {"n_estimators": range(30, 81, 10)}
 
-estimator = GradientBoostingClassifier(learning_rate=0.1, 
-                                       min_samples_split=500,
-                                       min_samples_leaf=50,
-                                       max_depth=8,
-                                       max_features='sqrt',
-                                       subsample=0.8,
-                                       random_state=10)
+estimator = GradientBoostingClassifier(
+    learning_rate=0.1,
+    min_samples_split=500,
+    min_samples_leaf=50,
+    max_depth=8,
+    max_features="sqrt",
+    subsample=0.8,
+    random_state=10,
+)
 
-grid_xgb1 = GridSearchCV(estimator,
-                  params1,
-                  cv=5,
-                  scoring='accuracy',
-                  n_jobs=1,
-                  verbose=False)
-grid_result=grid_xgb1.fit(x_train, y_train)
+grid_xgb1 = GridSearchCV(
+    estimator, params1, cv=5, scoring="accuracy", n_jobs=1, verbose=False
+)
+grid_result = grid_xgb1.fit(x_train, y_train)
 
 # %%
 log.info("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
-means = grid_result.cv_results_['mean_test_score']
-stds = grid_result.cv_results_['std_test_score']
-params = grid_result.cv_results_['params']
+means = grid_result.cv_results_["mean_test_score"]
+stds = grid_result.cv_results_["std_test_score"]
+params = grid_result.cv_results_["params"]
 for mean, stdev, param in zip(means, stds, params):
     log.info("%f (%f) with: %r" % (mean, stdev, param))
 
 # %%
-log.info('tuning max_depth and min_sample_split')
-params2 =  {'max_depth':range(5,16,2), 'min_samples_split':range(400,1001,200)}
+log.info("tuning max_depth and min_sample_split")
+params2 = {"max_depth": range(5, 16, 2), "min_samples_split": range(400, 1001, 200)}
 
-estimator = GradientBoostingClassifier(learning_rate=0.1,
-                                       n_estimators = 80,
-                                       max_features='sqrt',
-                                       subsample=0.8,
-                                       random_state=10)
+estimator = GradientBoostingClassifier(
+    learning_rate=0.1,
+    n_estimators=80,
+    max_features="sqrt",
+    subsample=0.8,
+    random_state=10,
+)
 
-grid_xgb2 = GridSearchCV(estimator,
-                  params2,
-                  cv=5,
-                  scoring='accuracy',
-                  n_jobs=-1,
-                  verbose=True)
+grid_xgb2 = GridSearchCV(
+    estimator, params2, cv=5, scoring="accuracy", n_jobs=-1, verbose=True
+)
 
-grid_result=grid_xgb2.fit(x_train, y_train)
+grid_result = grid_xgb2.fit(x_train, y_train)
 
 log.info("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
-means = grid_result.cv_results_['mean_test_score']
-stds = grid_result.cv_results_['std_test_score']
-params = grid_result.cv_results_['params']
+means = grid_result.cv_results_["mean_test_score"]
+stds = grid_result.cv_results_["std_test_score"]
+params = grid_result.cv_results_["params"]
 for mean, stdev, param in zip(means, stds, params):
     log.info("%f (%f) with: %r" % (mean, stdev, param))
 
@@ -329,75 +323,88 @@ for mean, stdev, param in zip(means, stds, params):
 
 # %%
 # the best parameter is give by Best: 0.540790 using {'max_depth': 15, 'min_samples_split': 400}
-log.info('tuning num_sample_split and min_sample_split')
-params3 =  {'min_samples_leaf':range(40,70,10), 'min_samples_split':range(400,1001,200)}
-estimator = GradientBoostingClassifier(learning_rate=0.1,
-                                       n_estimators = 80,
-                                       max_depth=15,
-                                       max_features='sqrt',
-                                       subsample=0.8,
-                                       random_state=10)
-grid_xgb3 = GridSearchCV(estimator,
-                  params3,
-                  cv=5,
-                  scoring='accuracy',
-                  n_jobs=-1,
-                  verbose=True)
-grid_result=grid_xgb3.fit(x_train, y_train)
+log.info("tuning num_sample_split and min_sample_split")
+params3 = {
+    "min_samples_leaf": range(40, 70, 10),
+    "min_samples_split": range(400, 1001, 200),
+}
+estimator = GradientBoostingClassifier(
+    learning_rate=0.1,
+    n_estimators=80,
+    max_depth=15,
+    max_features="sqrt",
+    subsample=0.8,
+    random_state=10,
+)
+grid_xgb3 = GridSearchCV(
+    estimator, params3, cv=5, scoring="accuracy", n_jobs=-1, verbose=True
+)
+grid_result = grid_xgb3.fit(x_train, y_train)
 
 log.info("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
-means = grid_result.cv_results_['mean_test_score']
-stds = grid_result.cv_results_['std_test_score']
-params = grid_result.cv_results_['params']
+means = grid_result.cv_results_["mean_test_score"]
+stds = grid_result.cv_results_["std_test_score"]
+params = grid_result.cv_results_["params"]
 for mean, stdev, param in zip(means, stds, params):
     log.info("%f (%f) with: %r" % (mean, stdev, param))
 
 # %%
-#Model fitting of the Grid search best estimator
-model_fit(grid_xgb3.best_estimator_,x_train, y_train,features,roc=False)
+# Model fitting of the Grid search best estimator
+model_fit(grid_xgb3.best_estimator_, x_train, y_train, features, roc=False)
 
 # %%
-model_fit(grid_xgb3.best_estimator_,x_test, y_test,features,roc=False)
+model_fit(grid_xgb3.best_estimator_, x_test, y_test, features, roc=False)
 
 # %%
 grid_xgb3.best_estimator_
 
 # %%
-log.info('tuning max_features')
-params4 =  {'max_features':range(7,20,2)}
+log.info("tuning max_features")
+params4 = {"max_features": range(7, 20, 2)}
 
-estimator = GradientBoostingClassifier(learning_rate=0.1,
-                                       n_estimators = 80,
-                                       max_depth=15,
-                                        min_samples_split=400, 
-                                       min_samples_leaf=40, 
-                                       subsample=0.8,
-                                       random_state=10)
-grid_xgb4 = GridSearchCV(estimator,
-                  params4,
-                  cv=5,
-                  scoring='accuracy',
-                  n_jobs=1,
-                  verbose=True)
-grid_result=grid_xgb4.fit(x_train, y_train)
+estimator = GradientBoostingClassifier(
+    learning_rate=0.1,
+    n_estimators=80,
+    max_depth=15,
+    min_samples_split=400,
+    min_samples_leaf=40,
+    subsample=0.8,
+    random_state=10,
+)
+grid_xgb4 = GridSearchCV(
+    estimator, params4, cv=5, scoring="accuracy", n_jobs=1, verbose=True
+)
+grid_result = grid_xgb4.fit(x_train, y_train)
 
 log.info("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
-means = grid_result.cv_results_['mean_test_score']
-stds = grid_result.cv_results_['std_test_score']
-params = grid_result.cv_results_['params']
-for mean, stdev, param in zip(means, stds , params):
+means = grid_result.cv_results_["mean_test_score"]
+stds = grid_result.cv_results_["std_test_score"]
+params = grid_result.cv_results_["params"]
+for mean, stdev, param in zip(means, stds, params):
     log.info("%f (%f) with: %r" % (mean, stdev, param))
 
 # %%
-xgb_tunned = GradientBoostingClassifier(learning_rate=0.1,
-                                       n_estimators = 80,
-                                       max_depth=19,
-                                        min_samples_split=400, 
-                                       min_samples_leaf=40, 
-                                       subsample=0.8,
-                                       random_state=1 )
+xgb_tunned = GradientBoostingClassifier(
+    learning_rate=0.1,
+    n_estimators=80,
+    max_depth=19,
+    min_samples_split=400,
+    min_samples_leaf=40,
+    subsample=0.8,
+    random_state=1,
+)
 
 # %%
-#Fit Cross validation and prediction on the train and the test set
-model_fit(xgb_tunned,x_train, y_train,features,performCV=True,roc=False,printFeatureImportance=True)
-model_fit(xgb_tunned,x_test, y_test,features, performCV=True,roc=False)
+# Fit Cross validation and prediction on the train and the test set
+model_fit(
+    xgb_tunned,
+    x_train,
+    y_train,
+    features,
+    performCV=True,
+    roc=False,
+    printFeatureImportance=True,
+)
+model_fit(xgb_tunned, x_test, y_test, features, performCV=True, roc=False)
+model_fit(xgb_tunned, x_test, y_test, features, performCV=True, roc=False)
+model_fit(xgb_tunned, x_test, y_test, features, performCV=True, roc=False)
